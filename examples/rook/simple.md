@@ -15,7 +15,7 @@ have the amount of disk space allocated to the nodes actually available on
 your system.
 
 ```
-$ ocne cluster start -C rookdemo -c <(wget https://github.com/oracle-cne/memoirs/assets/cluster-configs/bigdisk.yaml)
+$ ocne cluster start -C rookdemo -c <(wget https://raw.githubusercontent.com/oracle-cne/memoirs/refs/heads/main/assets/cluster-configs/bigdisk.yaml)
 $ export KUBECONFIG=$(ocne cluster show -C rookdemo)
 ```
 
@@ -37,7 +37,7 @@ sda      8:0    0  256G  0 disk
 Now install Rook.
 
 ```
-$ ocne application install --namespace rook-system --name rook --release rook --values https://github.com/oracle-cne/memoirs/assets/application-configs/rook/simple/values.yaml
+$ ocne application install --namespace rook-system --name rook --release rook --values https://raw.githubusercontent.com/oracle-cne/memoirs/refs/heads/main/assets/application-configs/rook/simple/values.yaml
 ```
 
 Now wait for Rook to become available.
@@ -52,7 +52,7 @@ rook-ceph-operator-548dd6b98f-2nqfp   1/1     Running   0          3m
 Now that Ceph is available, create a Ceph cluster that targets `/dev/sda4`
 
 ```
-$ kubectl apply -f https://github.com/oracle-cne/memoirs/assets/application-configs/rook/clusters/sda4.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/oracle-cne/memoirs/refs/heads/main/assets/application-configs/rook/clusters/sda4.yaml
 ```
 
 After applying these resources, Rook will begin configuring and creating a
@@ -95,7 +95,7 @@ rook-ceph-osd-prepare-rookdemo-worker-3-98zrb                0/1     Completed  
 At this point, Rook can be used like any other storage provider for Kubernetes.
 
 ```
-$ kubectl apply -f https://github.com/oracle-cne/memoirs/assets/kubernetes/simple-pvc-pod.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/oracle-cne/memoirs/refs/heads/main/assets/kubernetes/simple-pvc-pod.yaml
 ```
 
 Pod should come right up
