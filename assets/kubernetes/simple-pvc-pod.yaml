@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-pod
+spec:
+  volumes:
+    - name: my-storage
+      persistentVolumeClaim:
+        claimName: my-pvc
+  containers:
+    - name: my-container
+      command: ["sleep", "10d"]
+      image: container-registry.oracle.com/os/oraclelinux:8
+      volumeMounts:
+        - mountPath: "/volume"
+          name: my-storage
