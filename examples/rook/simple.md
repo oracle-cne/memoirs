@@ -15,7 +15,7 @@ have the amount of disk space allocated to the nodes actually available on
 your system.
 
 ```
-$ ocne cluster start -C rookdemo -c <(wget https://raw.githubusercontent.com/oracle-cne/memoirs/refs/heads/main/assets/cluster-configs/bigdisk.yaml)
+$ ocne cluster start -C rookdemo -c <(curl https://raw.githubusercontent.com/oracle-cne/memoirs/refs/heads/main/assets/cluster-configs/bigdisk.yaml)
 $ export KUBECONFIG=$(ocne cluster show -C rookdemo)
 ```
 
@@ -42,6 +42,7 @@ $ ocne application install --namespace rook-system --name rook --release rook --
 
 Now wait for Rook to become available.
 ```
+$ kubectl -n rook-system rollout status deployment rook-ceph-operator -w
 $ kubectl -n rook-system get pod -l app=rook-ceph-operator
 NAME                                  READY   STATUS    RESTARTS   AGE
 rook-ceph-operator-548dd6b98f-2nqfp   1/1     Running   0          3m
@@ -117,4 +118,12 @@ my-pvc   Bound    pvc-a8295ccc-ff25-4466-94d5-8a37ec84f346   5Gi        RWO     
 $ kubectl get persistentvolumes
 NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM            STORAGECLASS      VOLUMEATTRIBUTESCLASS   REASON   AGE
 pvc-a8295ccc-ff25-4466-94d5-8a37ec84f346   5Gi        RWO            Delete           Bound    default/my-pvc   rook-ceph-block   <unset>                          3m52s
+```
+
+# Cleanup
+
+Delete the cluster.
+```
+$ ocne cluster delete -C rookdemo
+$ unset KUBECONFIG
 ```
