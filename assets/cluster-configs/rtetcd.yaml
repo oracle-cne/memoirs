@@ -1,0 +1,36 @@
+name: rtetcd
+extraIgnitionInline: |
+  variant: fcos
+  version: 1.5.0
+  storage:
+    directories:
+      - path: /etc/crio/crio.conf.d
+    files:
+      - path: /etc/crio/crio.conf.d/hooks.conf
+        mode: 0444
+        contents:
+          inline: |
+            [crio]
+              [crio.runtime]
+                hooks_dir = ["/etc/containers/oci/hooks.d"]
+      - path: /etc/containers/oci/hooks.d/nice.json
+        mode: 0444
+        contents:
+          inline: |
+            {
+              "version": "1.0.0",
+              "hook": {
+                "path": "/etc/ocne/etcdnice.sh"
+              },
+              "when": {
+                "commands": ["etcd"]
+              },
+              "stages": ["prestart", "poststop", "poststart"]
+            }
+      - path: /etc/ocne/etcdnice.sh
+        mode: 0555
+        contents:
+          inline: |
+            #! /bin/bash
+            ETCDPID=$(jq -r .pid < /dev/stdin)
+            ionice -c 1 -p $ETCDPID

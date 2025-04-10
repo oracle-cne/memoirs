@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "hook": {
+    "path": "/etc/ocne/etcdnice.sh"
+  },
+  "when": {
+    "commands": ["etcd"]
+  },
+  "stages": ["prestart", "poststop", "poststart"]
+}
+
