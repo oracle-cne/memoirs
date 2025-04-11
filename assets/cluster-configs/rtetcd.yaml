@@ -25,7 +25,7 @@ extraIgnitionInline: |
               "when": {
                 "commands": ["etcd"]
               },
-              "stages": ["prestart", "poststop", "poststart"]
+              "stages": ["poststart"]
             }
       - path: /etc/ocne/etcdnice.sh
         mode: 0555

@@ -6,6 +6,6 @@
   "when": {
     "commands": ["etcd"]
   },
-  "stages": ["prestart", "poststop", "poststart"]
+  "stages": ["poststart"]
 }
 
