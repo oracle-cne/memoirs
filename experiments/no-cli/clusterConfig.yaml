@@ -1,0 +1,23 @@
+name: join
+provider: byo
+virtualIp: 192.168.122.75
+providers:
+  byo:
+    networkInterface: enp1s0
+extraIgnitionInline: |
+  variant: fcos
+  version: 1.5.0
+  storage:
+    files:
+    - path: /etc/sudoers
+      append:
+      - inline: "%wheel	ALL=(ALL)	NOPASSWD: ALL"
+  passwd:
+    users:
+      - name: sshuser
+        # This password is "welcome"
+        password_hash: "$6$ocne$6ReF22fGSN6cyepwGW.7hwBdQw7/Ho/PYXSeT3zPc0bPycWXY4wl1uWFG47FESG8kdA3vk6PG9mAElcI2stVT1"
+        groups:
+          - wheel
+        ssh_authorized_keys:
+          - your ssh public key
