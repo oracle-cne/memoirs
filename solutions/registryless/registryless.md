@@ -49,7 +49,7 @@ container-registry.oracle.com/os/oraclelinux                  8-slim            
 
 Now do a hard reset on the node by destroying the domain and starting it.
 
-``
+```
 $ sudo virsh destroy registrydemo-control-plane-1
 Domain 'registrydemo-control-plane-1' destroyed
 
