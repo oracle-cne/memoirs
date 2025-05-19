@@ -113,7 +113,7 @@ EOF
 Now pull some images.  One goes to the typical store, while the other goes to
 the alternate store.
 
-``
+```
 $ export KUBECONFIG=$(ocne cluster show -C registrydemo)
 $ ocne cluster console --direct --node registrydemo-control-plane-1 -- crictl pull container-registry.oracle.com/os/oraclelinux:9-slim
 
@@ -128,7 +128,6 @@ Trying to pull container-registry.oracle.com/os/oraclelinux:9-slim...
 ...
 Writing manifest to image destination
 86d8648645740bbb1fa5b63007f3acba50b536ecf41ef2683e4d281cafbd19e
-
 ```
 
 Notice how the image that was pulled to the normal store is read-write while the
