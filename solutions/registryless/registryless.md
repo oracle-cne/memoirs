@@ -159,7 +159,7 @@ $ ocne cluster console --direct --node registrydemo-control-plane-1 -- podman im
 container-registry.oracle.com/os/oraclelinux                 9-slim      d88bc436c213  2 weeks ago   116 MB      true
 ```
 
-This works because of the way that `additionalimagestores` are handled by
+This works because of the way that `additionalimagestores` is handled by
 container runtimes.  All additional image stores are set as read-only regardless
 of whether or not the actual store is writable.  This prevents Cri-O from
 trying to delete those images.  This way, it is possible to load container
