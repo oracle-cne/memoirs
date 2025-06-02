@@ -13,7 +13,9 @@ NAME=ovs
 BASE_IMAGE=boot-$VERSION.qcow2
 
 if [ -n "$SETUP" ]; then
-	# Extract Image
+	# Extract the OCK image to use as the root filesystem for the VMs for
+	# the cluster nodes.  This image is uploaded as a LibVirt volume to
+	# all the VM hosts.
 	podman pull container-registry.oracle.com/olcne/ock:$VERSION
 	podman create --name ock$VERSION container-registry.oracle.com/olcne/ock:$VERSION
 	podman cp ock$VERSION:/disk/boot.qcow2 $BASE_IMAGE
@@ -25,6 +27,15 @@ if [ -n "$SETUP" ]; then
 	# - Configure OpenVswitch
 	# - Do all common LibVirt setup
 	for host in $HOST1 $HOST2; do
+		# Install LibVirt and OpenVswitch.  LibVirt is used to create
+		# VMs.  OpenVswitch is used to create a VXLAN that the cluster
+		# nodes will sit on.  Once installation is complete, both
+		# services are started.
+		#
+		# A OVS bridge is created to host the VXLAN.
+		#
+		# The SSH user is added to the libvirt and qemu groups so that
+		# it can use virsh commands.
 		ssh $USER@$host sh -c "
 			dnf install -y oracle-ovirt-release-el8
 			dnf config-manager --enable ol8_kvm_appstream ovirt-4.4 ovirt-4.4-extra
@@ -42,7 +53,9 @@ if [ -n "$SETUP" ]; then
 			usermod -a -G libvirt,qemu $USER
 		"
 
-		# create networks - libvirt stuff
+		# Create a LibVirt network that is attached to the
+		# OpenVswitch bridge.  VMs that are attached to this network
+		# can use the VXLAN to communicate with each other.
 		export LIBVIRT_DEFAULT_URI="qemu+ssh://$USER@$host/system"
 		virsh net-define <( cat << EOF
 <network>
@@ -56,7 +69,7 @@ EOF
 
 		virsh net-start ovs
 
-		# Upload base imagea
+		# Upload the OCK base image
 		virsh vol-create --pool $POOL --file <(cat << EOF
 <volume type='file'>
   <name>$BASE_IMAGE</name>
@@ -77,20 +90,26 @@ EOF
 		virsh vol-upload --pool $POOL --vol $BASE_IMAGE --file $BASE_IMAGE --sparse
 	done
 
-	# configure vxlan on node 1
+	# Configure a VXLAN on the OVS bridge that tunnels to the other host
 	ssh $USER@$HOST1 sh -c "
 		ovs-vsctl add-port ovsbr0 vx_node2 -- set interface vx_node2 type=vxlan options:remote_ip=$(getent ahostsv4 ovs2 | head -1 | cut -d' ' -f1)
 		ip addr add dev ovsbr0 10.0.1.2/24
 	"
 
-	# Configure vxlan on node 2
+	# And vice-versa
 	ssh $USER@$HOST2 sh -c "
 		ovs-vsctl add-port ovsbr0 vx_node1 -- set interface vx_node1 type=vxlan options:remote_ip=$(getent ahostsv4 ovs1 | head -1 | cut -d' ' -f1)
 		ip addr add dev ovsbr0 10.0.1.3/24
 	"
 
 
-	# Install and configure NGINX on one host to use as a load balancer
+	# Install and configure NGINX as a reverse proxy.  It will talk to the
+	# control plane nodes to allow access to the cluster from hosts that are
+	# not part of the VXLAN.  Given that this is just a simple example, no
+	# attempt is made to create an HA configuration for NGINX.  It is installed
+	# on a single host and there is no virtual IP or similar HA configuration.
+	# However, it is possible to imagine what such a configuration might
+	# look like.
 	ssh $USER@$HOST1 sudo dnf install -y nginx
 	ssh $USER@$HOST1 sudo sh -c "cat > /etc/nginx/nginx.conf" << EOF
 load_module /usr/lib64/nginx/modules/ngx_stream_module.so;
@@ -109,12 +128,20 @@ stream {
 }
 EOF
 
-	# Allow NGINX to bind to port 6443 and initiate outbound connections
+	# By default on Oracle Linux, NGINX is not able to listen on port 6443
+	# nor is it allowed to make outbound connections.  Both of those things
+	# need to be changed for this NGINX configuration to work.
 	ssh $USER@$HOST1 sudo semanage port -a -t http_port_t -p tcp 6443
 	ssh $USER@$HOST1 sudo setsebool -P httpd_can_network_connect 1
 	ssh $USER@$HOST1 sudo systemctl enable --now nginx.service
 
-	# There is also a requirement for DNS
+	# Kubernetes has a hard requirement on DNS.  Well that's not entirely
+	# true.  There is a hard requirement on a /etc/resolv.conf file.
+	# Still, if there is going to be a resolv.conf then it may as well
+	# work.  Configure DNSMasq on one of the hosts to resolv DNS queries
+	# that originate from the VXLAN.  Again, this is not HA.  Again, one
+	# can imagine setting this up on multiple hosts and configuring the
+	# resolv.conf to match.
 	ssh $USER@$HOST sudo sh -c "cat > /etc/dnsmasq.conf" << EOF
 interface=ovsbr0
 bind-interfaces
@@ -122,7 +149,16 @@ EOF
 	ssh $USER@$HOST sudo systemctl enable --now dnsmasq.service
 fi
 
-# Create an extra ignition file
+# In this example there is no DHCP server.  Networking must be manually
+# configured.  Create an additional ignition configuration that sets up all
+# the static network configuration.  The resolv.conf points to the DNSMasq
+# server, the hostname is set to the node name, and a network interface is
+# set up.  Additional stuff can be added here as required/desired.
+#
+# Notice that the MTU is set to 1450.  VXLAN has a 50 byte overhead for
+# IPv4.  The OVS bridge has an MTU of 1500.  In order to avoid fragmentation,
+# the MTU on the cluster nodes needs to be 50 bytes smaller than that.
+# 1500 minus 50 is 1450.
 cat > extraIgnition.yaml << EOF
 variant: fcos
 version: 1.5.0
@@ -148,17 +184,11 @@ storage:
         NETMASK=255.255.255.0
         BROADCAST=10.0.1.255
         MTU=1450
-passwd:
-  users:
-    - name: dkrasins
-      password_hash: "$6$ocne$6ReF22fGSN6cyepwGW.7hwBdQw7/Ho/PYXSeT3zPc0bPycWXY4wl1uWFG47FESG8kdA3vk6PG9mAElcI2stVT1"
-      groups:
-        - wheel
-      ssh_authorized_keys:
-        - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDB/ycCcGJRdCrYJRB5YebGsk17zm/IadzqfzOX768djvAjNHOhD9/kag7YqOTq7PDzF8c2jIDObzVA9gHfblM/f9dBtVf2aF/ukFrN3Va1sftMYyRotVxljQkvppSV5y0GC+lI/EeHwKcnk5mT7MnSUECDWSQ5RACy6AITrFzfR4cxhhOpkK3TTKKg9iSO62PyyLi7g031Dk8x1RVqk+3H/VKSaL8ikLcfZyXyeKcrpYD3AWrswn/GVHrh/BjI+k7NkwhWa03fOEqq2D+eqC2OSok2nQyNMT95kWvvx6TDlBIPPw3yz9ha7qmII6v95Cg9v2yUO4KQ86/wKRpP8DpeqFe+peCVM7/P4PdVqN3JNk+6Bq1rjhiYWwY6EI4riQLp0e+KnUnZwpLi+zPRZsoffSvHcFx/riWN3a0+Xm2uKg9MGAXrdwTkrcg/gj8RjvRqiaUWf/PEtMU+0G9xa8ZsCpuVa8pM/Xd95n5LaWS+TIOfR+sFxhw8XNARXAomZJc= opc@dkrasins-ol9-new
 EOF
 
-# Create a cluster configuration file
+# A simple cluster configuration file is used to instantiate cluster nodes.
+# Given that the cluster uses the BYO provider, the configuration is simple.
+# The complex stuff has already been done as part of setting up the environment.
 cat > clusterConfig.yaml << EOF
 loadBalancer: $(getent ahostsv4 ovs1 | head -1 | cut -d' ' -f1)
 provider: byo
@@ -316,6 +346,7 @@ virsh start $NODE_NAME
 # Give the node some time to come up.
 sleep 120
 
+# Install the core cluster components.
 ocne cluster start -C $NAME -c clusterConfig.yaml --auto-start-ui false
 
 export KUBECONFIG=$(ocne cluster show -C $NAME)
@@ -328,11 +359,14 @@ export NODE_NAME=$NAME-worker-1
 VOLUME_PATH=$(virsh vol-path --pool images "$BASE_IMAGE")
 export POOL_PATH=$(dirname "$VOLUME_PATH")
 
+# Update the additional ignition configuration with a unique IP and hostname.
 sed -i 's/10.0.1.10/10.0.1.11/' extraIgnition.yaml
 sed -i "s/$NAME-control-plane-1/$NAME-worker-1/" extraIgnition.yaml
 
+# Generate the ignition file for the worker node
 ocne cluster join --kubeconfig $KUBECONFIG -c clusterConfig.yaml > $NODE_NAME.ign
 
+# Create a layered root disk
 virsh vol-create $POOL <(cat << EOF
 <volume type='file'>
   <name>$NODE_NAME.qcow2</name>
@@ -356,6 +390,7 @@ virsh vol-create $POOL <(cat << EOF
 EOF
 )
 
+# Upload the ignition file
 virsh vol-create $POOL <(cat << EOF
 <volume type='file'>
   <name>$NODE_NAME.ign</name>
@@ -459,4 +494,5 @@ virsh start $NODE_NAME
 # Let the node come up and join the cluster
 sleep 120
 
+# Et voila!
 kubectl get node
