@@ -13,6 +13,7 @@ deleteResources() {
 	virsh undefine --nvram $NODE_NAME
 	virsh vol-delete --pool images $NODE_NAME.qcow2
 	virsh vol-delete --pool images $NODE_NAME.ign
+	rm $NODE_NAME.ign
 }
 
 export LIBVIRT_DEFAULT_URI="qemu+ssh://$USER@$HOST1/system"
@@ -22,3 +23,5 @@ export LIBVIRT_DEFAULT_URI="qemu+ssh://$USER@$HOST2/system"
 deleteResources $NAME-worker-1
 
 ocne cluster delete -C ovs -c clusterConfig.yaml
+rm clusterConfig.yaml
+rm extraIgnition.yaml
