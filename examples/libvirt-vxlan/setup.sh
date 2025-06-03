@@ -55,7 +55,7 @@ if [ -n "$SETUP" ]; then
 			sudo ip link set ovsbr0 up
 			sudo usermod -a -G libvirt,qemu $USER
 
-			# Open VXLAN port
+			# Disable firewall
 			sudo systemctl stop firewalld.service
 			sudo systemctl disable firewalld.service
 		"
@@ -178,6 +178,17 @@ interface=ovsbr0
 bind-interfaces
 EOF
 	ssh $USER@$HOST1 sudo systemctl enable --now dnsmasq.service
+
+
+	# To be able to reach addresses outside the VXLAN a gateway
+	# is needed.  Arbitrarily choose one host to act as that
+	# gateway.  Use NAT to avoid having to deal with actual
+	# routing and subnet conflicts.
+	ssh $USER@$HOST1 "
+		sudo iptables -t nat -A POSTROUTING -o ens3 -j MASQUERADE
+		sudo iptables -A FORWARD -i ens3 -o ovsbr0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+		sudo iptables -A FORWARD -i ovsbr0 -o ens3 -j ACCEPT
+	"
 fi
 
 # In this example there is no DHCP server.  Networking must be manually
