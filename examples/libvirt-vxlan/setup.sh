@@ -2,7 +2,7 @@
 set -x
 set -e
 
-SETUP=
+SETUP=yes
 USER=opc
 HOST1=ovs1
 HOST2=ovs2
@@ -27,6 +27,9 @@ if [ -n "$SETUP" ]; then
 	# - Configure OpenVswitch
 	# - Do all common LibVirt setup
 	for host in $HOST1 $HOST2; do
+		# If this is an OCI instance, grow the filesystem.
+		ssh $USER@$host sudo /usr/libexec/oci-growfs -y || true
+
 		# Install LibVirt and OpenVswitch.  LibVirt is used to create
 		# VMs.  OpenVswitch is used to create a VXLAN that the cluster
 		# nodes will sit on.  Once installation is complete, both
@@ -36,21 +39,25 @@ if [ -n "$SETUP" ]; then
 		#
 		# The SSH user is added to the libvirt and qemu groups so that
 		# it can use virsh commands.
-		ssh $USER@$host sh -c "
-			dnf install -y oracle-ovirt-release-el8
-			dnf config-manager --enable ol8_kvm_appstream ovirt-4.4 ovirt-4.4-extra
-			dnf install -y openvswitch
-			dnf module reset -y virt:ol
-			dnf module install -y virt:kvm_utils3/common
+		ssh $USER@$host "
+			sudo dnf install -y oracle-ovirt-release-el8
+			sudo dnf config-manager --enable ol8_kvm_appstream ovirt-4.4 ovirt-4.4-extra
+			sudo dnf install -y openvswitch
+			sudo dnf module reset -y virt:ol
+			sudo dnf module install -y virt:kvm_utils3/common
 
 			# start services
-			systemctl enable --now libvirtd.service
-			systemctl enable --now openvswitch.service
+			sudo systemctl enable --now libvirtd.service
+			sudo systemctl enable --now openvswitch.service
 
 			# create networks - ovs stuff
-			ovs-vsctl add-br ovsbr0
-			ip link set ovsbr0 up
-			usermod -a -G libvirt,qemu $USER
+			sudo ovs-vsctl add-br ovsbr0
+			sudo ip link set ovsbr0 up
+			sudo usermod -a -G libvirt,qemu $USER
+
+			# Open VXLAN port
+			sudo systemctl stop firewalld.service
+			sudo systemctl disable firewalld.service
 		"
 
 		# Create a LibVirt network that is attached to the
@@ -68,6 +75,28 @@ EOF
 )
 
 		virsh net-start ovs
+
+		virsh pool-define <(cat << EOF
+<pool type='dir'>
+  <name>${POOL}</name>
+  <capacity unit='bytes'>38069878784</capacity>
+  <allocation unit='bytes'>27457032192</allocation>
+  <available unit='bytes'>10612846592</available>
+  <source>
+  </source>
+  <target>
+    <path>/var/lib/libvirt/images</path>
+    <permissions>
+      <mode>0711</mode>
+      <owner>0</owner>
+      <group>0</group>
+      <label>system_u:object_r:virt_image_t:s0</label>
+    </permissions>
+  </target>
+</pool>
+EOF
+)
+		virsh pool-start $POOL
 
 		# Upload the OCK base image
 		virsh vol-create --pool $POOL --file <(cat << EOF
@@ -91,15 +120,17 @@ EOF
 	done
 
 	# Configure a VXLAN on the OVS bridge that tunnels to the other host
-	ssh $USER@$HOST1 sh -c "
-		ovs-vsctl add-port ovsbr0 vx_node2 -- set interface vx_node2 type=vxlan options:remote_ip=$(getent ahostsv4 ovs2 | head -1 | cut -d' ' -f1)
-		ip addr add dev ovsbr0 10.0.1.2/24
+	ssh $USER@$HOST1 "
+		sudo ovs-vsctl add-port ovsbr0 vx_node2 -- set interface vx_node2 type=vxlan options:remote_ip=$(getent ahostsv4 ovs2 | head -1 | cut -d' ' -f1)
+		sudo ip addr add dev ovsbr0 10.0.1.2/24
+		true
 	"
 
 	# And vice-versa
-	ssh $USER@$HOST2 sh -c "
-		ovs-vsctl add-port ovsbr0 vx_node1 -- set interface vx_node1 type=vxlan options:remote_ip=$(getent ahostsv4 ovs1 | head -1 | cut -d' ' -f1)
-		ip addr add dev ovsbr0 10.0.1.3/24
+	ssh $USER@$HOST2 "
+		sudo ovs-vsctl add-port ovsbr0 vx_node1 -- set interface vx_node1 type=vxlan options:remote_ip=$(getent ahostsv4 ovs1 | head -1 | cut -d' ' -f1)
+		sudo ip addr add dev ovsbr0 10.0.1.3/24
+		true
 	"
 
 
@@ -111,7 +142,7 @@ EOF
 	# However, it is possible to imagine what such a configuration might
 	# look like.
 	ssh $USER@$HOST1 sudo dnf install -y nginx
-	ssh $USER@$HOST1 sudo sh -c "cat > /etc/nginx/nginx.conf" << EOF
+	ssh $USER@$HOST1 sudo tee /etc/nginx/nginx.conf << EOF
 load_module /usr/lib64/nginx/modules/ngx_stream_module.so;
 events {
   worker_connections 2048;
@@ -142,11 +173,11 @@ EOF
 	# that originate from the VXLAN.  Again, this is not HA.  Again, one
 	# can imagine setting this up on multiple hosts and configuring the
 	# resolv.conf to match.
-	ssh $USER@$HOST sudo sh -c "cat > /etc/dnsmasq.conf" << EOF
+	ssh $USER@$HOST1 sudo tee /etc/dnsmasq.conf << EOF
 interface=ovsbr0
 bind-interfaces
 EOF
-	ssh $USER@$HOST sudo systemctl enable --now dnsmasq.service
+	ssh $USER@$HOST1 sudo systemctl enable --now dnsmasq.service
 fi
 
 # In this example there is no DHCP server.  Networking must be manually
@@ -167,7 +198,7 @@ storage:
   - path: /etc/resolv.conf
     contents:
       inline: |
-        nameserver 10.0.1.3
+        nameserver 10.0.1.2
   - path: /etc/hostname
     contents:
       inline: $NAME-control-plane-1
@@ -180,7 +211,7 @@ storage:
         ONBOOT=yes
         TYPE=Ethernet
         IPADDR=10.0.1.10
-        GATEWAY=10.0.1.3
+        GATEWAY=10.0.1.2
         NETMASK=255.255.255.0
         BROADCAST=10.0.1.255
         MTU=1450
