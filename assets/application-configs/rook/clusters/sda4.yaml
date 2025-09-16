@@ -3,10 +3,10 @@ apiVersion: ceph.rook.io/v1
 kind: CephCluster
 metadata:
   name: ceph-cluster
-  namespace: rook-system
+  namespace: rook-ceph
 spec:
   cephVersion:
-    image: olcne/ceph:v17.2.5
+    image: olcne/ceph:${CEPH_IMAGE_TAG}
   dataDirHostPath: /var/lib/rook
   mon:
     count: 3
@@ -27,7 +27,7 @@ apiVersion: ceph.rook.io/v1
 kind: CephBlockPool
 metadata:
   name: replicapool
-  namespace: rook-system
+  namespace: rook-ceph
 spec:
   failureDomain: host
   replicated:
@@ -37,12 +37,12 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: rook-ceph-block
-  namespace: rook-system
+  namespace: rook-ceph
   annotations:
     storageclass.kubernetes.io/is-default-class: "true"
-provisioner: rook-system.rbd.csi.ceph.com
+provisioner: rook-ceph.rbd.csi.ceph.com
 parameters:
-  clusterID: rook-system # namespace:cluster
+  clusterID: rook-ceph # namespace:cluster
  
   pool: replicapool
   imageFormat: "2"
@@ -51,11 +51,11 @@ parameters:
   # The secrets contain Ceph admin credentials. These are generated automatically by the operator
   # in the same namespace as the cluster.
   csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
-  csi.storage.k8s.io/provisioner-secret-namespace: rook-system # namespace:cluster
+  csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph # namespace:cluster
   csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
-  csi.storage.k8s.io/controller-expand-secret-namespace: rook-system # namespace:cluster
+  csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph # namespace:cluster
   csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
-  csi.storage.k8s.io/node-stage-secret-namespace: rook-system # namespace:cluster
+  csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph # namespace:cluster
   csi.storage.k8s.io/fstype: ext4
 allowVolumeExpansion: true
 reclaimPolicy: Delete
